@@ -1,16 +1,16 @@
-use reqwest::{Error, Url};
+use reqwest::{Error, Client};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
-
-async fn get_chargers(location_id: i32, req_url: String) -> Result<Vec<Charger>, Error> {
+async fn get_chargers(client: &Client, req_url: &String, location_id: i32 ) -> Result<Vec<Charger>, Error> {
     /*
      * Get all chargers and parse their output to find chargers with the desired location id
      **/
     let mut charger_url_path: String = req_url.clone();
     charger_url_path.push_str("/data/chargers");
 
-    let res = reqwest::get(&charger_url_path).await?;
+    let res = client.get(&charger_url_path).send().await?;
     let body = res.text().await?;
     let chargers: Vec<Charger> = serde_json::from_str(&body).unwrap();
     let only_relevant_chargers: Vec<Charger> = chargers
@@ -27,10 +27,37 @@ async fn get_chargers(location_id: i32, req_url: String) -> Result<Vec<Charger>,
     Ok(only_relevant_chargers)
 }
 
-async fn get_meter_values() {
+async fn get_meter_values(client: &Client, req_url: &String, chargers: Vec<Charger>) -> Result<Vec<MeterValue>, Error>{
     /*
      * given a list of chargers, return the most meter values for all connectors from the charger
      */
+
+    let mut meter_values: Vec<MeterValue> = Vec::new();
+
+    let mut metervalues_url_path: String = req_url.clone();
+    metervalues_url_path.push_str("/data/meter-values");
+    for charger in chargers {
+        
+        let res = client
+        .get(&metervalues_url_path)
+        .body::<Json>(
+
+        json!({
+            "charger_id": charger.id,
+            "descending": true,
+            "limit": 1
+        }).into()
+            )
+
+        .send()
+        .await?;
+        
+        let res_body = res.text().await?;
+
+        let meter_val: MeterValue = serde_json::from_str(&res_body).unwrap();
+        meter_values.push(meter_val);
+    };
+    Ok(meter_values)
 }
 
 
@@ -95,12 +122,23 @@ async fn main() -> Result<(), Error>{
         .parse::<i32>()
         .expect("Something went wrong reading in the battery capacity. Please verify PEAK_UPPER_BOUND is of type i32");
 
+    let client = Client::new();
 
-    let chargers = get_chargers(2, chargerhub_url).await?;
-    println!("{:#?}", chargers);
+    let chargers = get_chargers(&client, &chargerhub_url, 2).await?;
+
+    let meter_values = get_meter_values(&client, &chargerhub_url, chargers).await?;
+    println!("{:#?}", meter_values);
     Ok(())
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct MeterValue {
+    pub connector_id: i32,
+    pub charger_id: String,
+    pub transaction_id: i32,
+    pub time_stamp: DateTime<Utc>,
+    pub sampled_value: serde_json::Value
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Charger {

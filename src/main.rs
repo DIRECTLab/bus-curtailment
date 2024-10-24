@@ -1,5 +1,5 @@
 use reqwest::{Error, Client};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -39,17 +39,15 @@ async fn get_meter_values(client: &Client, req_url: &String, chargers: Vec<Charg
     for charger in chargers {
         
         let res = client
-        .get(&metervalues_url_path)
-        .body::<Json>(
-
-        json!({
-            "charger_id": charger.id,
-            "descending": true,
-            "limit": 1
-        }).into()
+            .get(&metervalues_url_path)
+            .query(
+                &json!({
+                    "charger_id": charger.id,
+                    "descending": true,
+                    "limit": 1
+                })
             )
-
-        .send()
+            .send()
         .await?;
         
         let res_body = res.text().await?;
@@ -61,7 +59,7 @@ async fn get_meter_values(client: &Client, req_url: &String, chargers: Vec<Charg
 }
 
 
-async fn create_charge_profile() {
+async fn create_charge_profile(client: &Client, req_url: &String, connector_id: i32, charger: Charger, metervalue: MeterValue) {
     /*
      * Create and send a charge profile to chargerhub which will
      * act on curtailment schedule. This charging profile should
@@ -70,9 +68,43 @@ async fn create_charge_profile() {
      * in the same profile instead of creating a new profile for
      * every change in behavior
      */
+
+    let dur = Duration::new(3600 * 8, 0).expect("This is literally a static duration");
+    get_charge_rate(dur, 10).await;
+
+
+    /*
+    connector_id: u32,
+    duration: Option<u32>,
+    purpose: Option<ChargingProfilePurposeType>,
+    stack_level: Option<u32>,
+    transaction_id: Option<u64>,
+    charge_rates: Vec<f32>,
+    start_periods: Option<Vec<u32>>,
+    start_schedule: Option<DateTime<Utc>>
+    */
+
+    let mut url: String = req_url.clone();
+        url.push_str(&format!("/data/{}/transactions", charger.id));
+
+    let transaction_res = client.get(url)
+    // We need to get the connector id from the transaction
+
+    let mut url: String = req_url.clone();
+        url.push_str("/command/set-charge-profile");
+    let res = client
+        .post(url)
+        .json(
+            &json!({
+                "connector_id": connector_id,
+            })
+        );
 }
 
-async fn get_charge_rate() {
+// Time_allotment is just what it sounds like, 
+// charge_amount is the amount of SoC that should be recovered at the end of the time allotment and
+// should be out of 100
+async fn get_charge_rate(time_allotment: Duration, charge_amount: i8) -> f32 {
     /*
      * Given a bus' current state of charge, determine the rate of charge 
      * needed to charge the bus by the desired time
@@ -81,6 +113,12 @@ async fn get_charge_rate() {
      *             = required concurrent charge rate to charge battery to desired SOC
      *               in desired timeframe.
      */
+
+    return (charge_amount as f32 / 100.0) / 
+    (time_allotment.num_hours() as f32 + 
+    (time_allotment.num_minutes() as f32 / 60.0));
+
+
 }
 
 async fn assign_charge_rates() {
@@ -120,7 +158,7 @@ async fn main() -> Result<(), Error>{
     let peak_upper_bound = dotenv::var("PEAK_UPPER_BOUND")
         .expect("PEAK_UPPER_BOUND was not specified in .env")
         .parse::<i32>()
-        .expect("Something went wrong reading in the battery capacity. Please verify PEAK_UPPER_BOUND is of type i32");
+        .expect("Something went wrong reading in the peak upper bound. Please verify PEAK_UPPER_BOUND is of type i32");
 
     let client = Client::new();
 

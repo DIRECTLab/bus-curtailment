@@ -1,4 +1,4 @@
-use reqwest::{Error, Client};
+use reqwest::{Error, Client, header::{HeaderValue, CONTENT_TYPE}};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -40,20 +40,21 @@ async fn get_meter_values(client: &Client, req_url: &String, chargers: Vec<Charg
         
         let res = client
             .get(&metervalues_url_path)
-            .query(
-                &json!({
+            .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
+            .body(
+                json!({
                     "charger_id": charger.id,
                     "descending": true,
                     "limit": 1
-                })
+                }).to_string()
             )
             .send()
         .await?;
         
         let res_body = res.text().await?;
 
-        let meter_val: MeterValue = serde_json::from_str(&res_body).unwrap();
-        meter_values.push(meter_val);
+        let meter_val: Vec<MeterValue> = serde_json::from_str(&res_body).unwrap();
+        meter_values.push(meter_val[0].clone());
     };
     Ok(meter_values)
 }
@@ -87,7 +88,7 @@ async fn create_charge_profile(client: &Client, req_url: &String, connector_id: 
     let mut url: String = req_url.clone();
         url.push_str(&format!("/data/{}/transactions", charger.id));
 
-    let transaction_res = client.get(url)
+    let transaction_res = client.get(url);
     // We need to get the connector id from the transaction
 
     let mut url: String = req_url.clone();
@@ -142,6 +143,8 @@ async fn create_charging_strategy() {
      */
 }
 
+
+
 #[tokio::main]
 async fn main() -> Result<(), Error>{
     // obtain all environment variables
@@ -169,7 +172,7 @@ async fn main() -> Result<(), Error>{
     Ok(())
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MeterValue {
     pub connector_id: i32,
     pub charger_id: String,

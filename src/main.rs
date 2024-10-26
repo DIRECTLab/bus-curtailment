@@ -1,7 +1,7 @@
 use reqwest::{Error, Client, header::{HeaderValue, CONTENT_TYPE}};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 
 async fn get_chargers(client: &Client, req_url: &String, location_id: i32 ) -> Result<Vec<Charger>, Error> {
     /*
@@ -34,7 +34,7 @@ async fn get_meter_values(client: &Client, req_url: &String, chargers: Vec<Charg
 
     let mut meter_values: Vec<MeterValue> = Vec::new();
 
-    let mut metervalues_url_path: String = req_url.clone();
+    let mut metervalues_url_path: String = req_url.to_owned();
     metervalues_url_path.push_str("/data/meter-values");
     for charger in chargers {
         
@@ -59,6 +59,21 @@ async fn get_meter_values(client: &Client, req_url: &String, chargers: Vec<Charg
     Ok(meter_values)
 }
 
+fn parse_meterval(metervalue: MeterValue) -> f32{
+    /*
+     * Given a metervalue, parse out the transaction ID and 
+     * SOC metric.
+     */
+
+    let meterval = metervalue.sampled_value
+        .as_array()
+        .expect("Meter value is not of expected type (&Vec<Value>)")
+        .iter()
+        .find(|value| value["measurand"] == "SoC")        
+        .expect("Unable to find state of charge information in meter value");
+
+    String::from(meterval["value"].as_str().unwrap()).parse::<f32>().unwrap()
+}
 
 async fn create_charge_profile(client: &Client, req_url: &String, connector_id: i32, charger: Charger, metervalue: MeterValue) {
     /*
@@ -85,7 +100,7 @@ async fn create_charge_profile(client: &Client, req_url: &String, connector_id: 
     start_schedule: Option<DateTime<Utc>>
     */
 
-    let mut url: String = req_url.clone();
+    let mut url: String = req_url.to_owned();
         url.push_str(&format!("/data/{}/transactions", charger.id));
 
     let transaction_res = client.get(url);
@@ -143,6 +158,15 @@ async fn create_charging_strategy() {
      */
 }
 
+fn runner_loop() {
+    /*
+     * This will be the loop which actually performs the steps necessary to perform curtailment
+     */
+    loop {
+
+    }
+
+}
 
 
 #[tokio::main]
@@ -168,7 +192,11 @@ async fn main() -> Result<(), Error>{
     let chargers = get_chargers(&client, &chargerhub_url, 2).await?;
 
     let meter_values = get_meter_values(&client, &chargerhub_url, chargers).await?;
-    println!("{:#?}", meter_values);
+    println!("{:#?}", &meter_values);
+    for value in meter_values {
+        let soc = parse_meterval(value);
+        println!("reported SOC {}", soc);
+    }
     Ok(())
 }
 

@@ -1,7 +1,8 @@
 use reqwest::{Error, Client, header::{HeaderValue, CONTENT_TYPE}};
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Duration, Local, Timelike, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::json;
+use std::time;
 
 async fn get_chargers(client: &Client, req_url: &String, location_id: i32 ) -> Result<Vec<Charger>, Error> {
     /*
@@ -21,7 +22,7 @@ async fn get_chargers(client: &Client, req_url: &String, location_id: i32 ) -> R
                     return true;
                 }
             } 
-            return false
+            false
         })
         .collect();
     Ok(only_relevant_chargers)
@@ -59,7 +60,7 @@ async fn get_meter_values(client: &Client, req_url: &String, chargers: Vec<Charg
     Ok(meter_values)
 }
 
-fn parse_meterval(metervalue: MeterValue) -> f32{
+fn parse_meterval(metervalue: &MeterValue) -> i8{
     /*
      * Given a metervalue, parse out the transaction ID and 
      * SOC metric.
@@ -72,10 +73,10 @@ fn parse_meterval(metervalue: MeterValue) -> f32{
         .find(|value| value["measurand"] == "SoC")        
         .expect("Unable to find state of charge information in meter value");
 
-    String::from(meterval["value"].as_str().unwrap()).parse::<f32>().unwrap()
+    String::from(meterval["value"].as_str().unwrap()).parse::<i8>().unwrap()
 }
 
-async fn create_charge_profile(client: &Client, req_url: &String, connector_id: i32, charger: Charger, metervalue: MeterValue) {
+async fn create_charge_profile(client: &Client, req_url: &String, connector_id: &i32, charger_id: &String, charge_rate: f32) {
     /*
      * Create and send a charge profile to chargerhub which will
      * act on curtailment schedule. This charging profile should
@@ -84,11 +85,8 @@ async fn create_charge_profile(client: &Client, req_url: &String, connector_id: 
      * in the same profile instead of creating a new profile for
      * every change in behavior
      */
-
-    let dur = Duration::new(3600 * 8, 0).expect("This is literally a static duration");
-    get_charge_rate(dur, 10).await;
-
-
+    
+    
     /*
     connector_id: u32,
     duration: Option<u32>,
@@ -101,7 +99,7 @@ async fn create_charge_profile(client: &Client, req_url: &String, connector_id: 
     */
 
     let mut url: String = req_url.to_owned();
-        url.push_str(&format!("/data/{}/transactions", charger.id));
+        url.push_str(&format!("/data/{}/transactions", charger_id));
 
     let transaction_res = client.get(url);
     // We need to get the connector id from the transaction
@@ -113,6 +111,8 @@ async fn create_charge_profile(client: &Client, req_url: &String, connector_id: 
         .json(
             &json!({
                 "connector_id": connector_id,
+                "stack_level": 0,
+                "charge_rates": charge_rate,
             })
         );
 }
@@ -130,9 +130,9 @@ async fn get_charge_rate(time_allotment: Duration, charge_amount: i8) -> f32 {
      *               in desired timeframe.
      */
 
-    return (charge_amount as f32 / 100.0) / 
+    (charge_amount as f32 / 100.0) / 
     (time_allotment.num_hours() as f32 + 
-    (time_allotment.num_minutes() as f32 / 60.0));
+    (time_allotment.num_minutes() as f32 / 60.0))
 
 
 }
@@ -158,12 +158,77 @@ async fn create_charging_strategy() {
      */
 }
 
-fn runner_loop() {
+async fn runner_loop(client: &Client, chargerhub_url: &String, desired_soc: &i8) {
+    const TIME_BETWEEN_LOOPS: u64 = 5 * 60; // number of minutes to wait between loops
+                                            
+    let TIME_BETWEEN_RECALCULATIONS = Duration::new(90 * 60, 0).expect("Static duration failed to initialize"); // number of minutes to wait between recalculating
+                                                                                                                                             // charge charge rates
+                                                 
+    let mut initial_calculation = false; // have the initial charge profiles been calculated?
+                                               
+    let mut last_recalculation = Local::now(); // last time new charge profiles were calculated
+                                                                
+    let start_time = Local::now() // only perform curtailment if after start time
+        .with_hour(19)
+        .unwrap()
+        .with_minute(0)
+        .unwrap()
+        .with_second(0)
+        .unwrap();
+
+    // Set time to stop curtailment to 5am. If before midnight, add day to chrono datetime
+    let mut stop_time = Local::now()
+        .with_hour(5)
+        .unwrap()
+        .with_minute(0)
+        .unwrap()
+        .with_second(0)
+        .unwrap();
+
+    stop_time = if last_recalculation > stop_time { // move stop time forward by a day if
+       stop_time + Duration::days(1)                // calculation made before midnight
+    } else {
+       stop_time
+    };
+
     /*
      * This will be the loop which actually performs the steps necessary to perform curtailment
      */
     loop {
 
+        //Check that the current time is after the last route ends and that no conditions have been met to recalculate the charge rates
+        let right_now = Local::now();
+        let time_delta = right_now - last_recalculation;
+        //Conditions to recalculate charges includes if the current time is after bus routes end for the day, and a bus being connected/disconnected from the pool.
+        //Additionally, charge profiles should be recalculated every N minutes to ensure charging is completed by the desired time
+        if !initial_calculation || time_delta >= TIME_BETWEEN_RECALCULATIONS && right_now >= start_time {
+            // Set to true since initial value calculated after this point
+            initial_calculation = true;
+            last_recalculation = Local::now();
+            //Obtain all chargers at the bus depo site. 
+            let chargers = get_chargers(&client, chargerhub_url, 2)
+                .await
+                .expect("Unable to grab chargers from charge site");
+
+            //Grab meter values for each charger
+            let meter_values = get_meter_values(&client, chargerhub_url, chargers)
+                .await
+                .expect("Failed to obtain meter values from charger hub");
+            //Create charge profiles
+            for value in meter_values {
+                
+                //parse the SOC out of the meter values and get % charge needed to get to desired SOC
+                let soc_needed = desired_soc -  parse_meterval(&value);
+                //Calculate the power needed for each bus and create a charge profile based on the needed power
+                let time_to_charge = stop_time - right_now;
+                let charge_rate = get_charge_rate(time_to_charge, soc_needed).await;
+
+                //submit charge profiles to chargerhub which should handle the communication with the charger
+                create_charge_profile(client, chargerhub_url, &value.connector_id, &value.charger_id, charge_rate).await;
+            }
+        }
+        //Sleep for reasonable amount of time
+        std::thread::sleep(time::Duration::from_secs(TIME_BETWEEN_LOOPS));
     }
 
 }
@@ -186,17 +251,17 @@ async fn main() -> Result<(), Error>{
         .expect("PEAK_UPPER_BOUND was not specified in .env")
         .parse::<i32>()
         .expect("Something went wrong reading in the peak upper bound. Please verify PEAK_UPPER_BOUND is of type i32");
+    
+    let desired_soc = dotenv::var("DESIRED_SOC")
+        .expect("DESIRED_SOC was not specified in .env")
+        .parse::<i8>()
+        .expect("Something went wrong reading in the desired SOC. Please verify DESIRED_SOC is of type i8");
+
 
     let client = Client::new();
 
-    let chargers = get_chargers(&client, &chargerhub_url, 2).await?;
-
-    let meter_values = get_meter_values(&client, &chargerhub_url, chargers).await?;
-    println!("{:#?}", &meter_values);
-    for value in meter_values {
-        let soc = parse_meterval(value);
-        println!("reported SOC {}", soc);
-    }
+    runner_loop(&client, &chargerhub_url, &desired_soc)
+    
     Ok(())
 }
 
@@ -207,6 +272,11 @@ pub struct MeterValue {
     pub transaction_id: i32,
     pub time_stamp: DateTime<Utc>,
     pub sampled_value: serde_json::Value
+}
+
+pub struct Soc {
+    pub charger_id: String,
+    pub value: f32
 }
 
 #[derive(Debug, Deserialize, Serialize)]

@@ -114,12 +114,14 @@ async fn create_charge_profile(client: &Client, req_url: &String, connector_id: 
     // We need to get the connector id from the transaction
 
     let mut url: String = req_url.clone();
-        url.push_str("/command/set-charge-profile");
+        url.push_str(&format!("/command/{}/set-charge-profile", charger_id));
 
     let charge_profile = &json!({
                 "connector_id": connector_id,
+                "start_periods": [0],
                 "stack_level": 0,
-                "charge_rates": charge_rate,
+                "charge_rates": [charge_rate],
+                "purpose": "TxDefaultProfile",
             });
 
     if *verbose_mode{
@@ -128,7 +130,9 @@ async fn create_charge_profile(client: &Client, req_url: &String, connector_id: 
 
     let res = client
         .post(url)
-        .json(charge_profile);
+        .json(charge_profile)
+        .send()
+        .await;
 }
 
 // Time_allotment is just what it sounds like, 
@@ -148,7 +152,7 @@ async fn get_charge_rate(time_allotment: Duration, charge_amount: i8, battery_ca
                            (time_allotment.num_hours() as f32 + 
                            (time_allotment.num_minutes() as f32 / 60.0));
     if *verbose_mode {
-        println!("charge rate {} calculated for charging {}% over {} minutes", charge_rate, charge_amount, time_allotment);
+        println!("charge rate {} calculated for charging +{}% over {} minutes", charge_rate, charge_amount, time_allotment.num_minutes());
     }
     return charge_rate;
 
@@ -282,11 +286,23 @@ async fn main() -> Result<(), Error>{
         .parse::<i8>()
         .expect("Something went wrong reading in the desired SOC. Please verify DESIRED_SOC is of type i8");
 
-
     let verbose_mode = dotenv::var("VERBOSE_MODE")
         .expect("VERBOSE_MODE was not specified in .env")
         .parse::<bool>()
         .unwrap_or_else(|_| return false); // default to false if not specified
+    
+    let charge_clamp_lower = dotenv::var("CHARGE_CLAMP_LOWER")
+        .expect("DESIRED_SOC was not specified in .env")
+        .parse::<i32>()
+        .expect("Something went wrong reading in the lower bound for charge rates. Please verify CHARGE_CLAMP_LOWER is of type i32");
+
+    let charge_clamp_upper = dotenv::var("CHARGE_CLAMP_UPPER")
+        .expect("DESIRED_SOC was not specified in .env")
+        .parse::<i32>()
+        .expect("Something went wrong reading in the lower bound for charge rates. Please verify CHARGE_CLAMP_LOWER is of type i32");
+
+
+
 
     let client = Client::new();
 

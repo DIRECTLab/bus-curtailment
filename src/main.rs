@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::time;
 
-async fn get_chargers(client: &Client, req_url: &String, location_id: i32 ) -> Result<Vec<Charger>, Error> {
+async fn get_chargers(client: &Client, req_url: &String, location_id: i32, verbose_mode: &bool) -> Result<Vec<Charger>, Error> {
     /*
      * Get all chargers and parse their output to find chargers with the desired location id
      **/
@@ -25,10 +25,14 @@ async fn get_chargers(client: &Client, req_url: &String, location_id: i32 ) -> R
             false
         })
         .collect();
+    if *verbose_mode {
+        println!("{:#?}", only_relevant_chargers);
+    }
     Ok(only_relevant_chargers)
 }
 
-async fn get_meter_values(client: &Client, req_url: &String, chargers: Vec<Charger>) -> Result<Vec<MeterValue>, Error>{
+
+async fn get_meter_values(client: &Client, req_url: &String, chargers: Vec<Charger>, verbose_mode: &bool) -> Result<Vec<MeterValue>, Error>{
     /*
      * given a list of chargers, return the most meter values for all connectors from the charger
      */
@@ -57,6 +61,11 @@ async fn get_meter_values(client: &Client, req_url: &String, chargers: Vec<Charg
         let meter_val: Vec<MeterValue> = serde_json::from_str(&res_body).unwrap();
         meter_values.push(meter_val[0].clone());
     };
+
+    if *verbose_mode {
+        println!("{:#?}", meter_values);
+    }
+
     Ok(meter_values)
 }
 
@@ -73,10 +82,10 @@ fn parse_meterval(metervalue: &MeterValue) -> i8{
         .find(|value| value["measurand"] == "SoC")        
         .expect("Unable to find state of charge information in meter value");
 
-    String::from(meterval["value"].as_str().unwrap()).parse::<i8>().unwrap()
+    String::from(meterval["value"].as_str().unwrap()).parse::<f32>().unwrap() as i8
 }
 
-async fn create_charge_profile(client: &Client, req_url: &String, connector_id: &i32, charger_id: &String, charge_rate: f32) {
+async fn create_charge_profile(client: &Client, req_url: &String, connector_id: &i32, charger_id: &String, charge_rate: f32, verbose_mode: &bool) {
     /*
      * Create and send a charge profile to chargerhub which will
      * act on curtailment schedule. This charging profile should
@@ -106,21 +115,26 @@ async fn create_charge_profile(client: &Client, req_url: &String, connector_id: 
 
     let mut url: String = req_url.clone();
         url.push_str("/command/set-charge-profile");
-    let res = client
-        .post(url)
-        .json(
-            &json!({
+
+    let charge_profile = &json!({
                 "connector_id": connector_id,
                 "stack_level": 0,
                 "charge_rates": charge_rate,
-            })
-        );
+            });
+
+    if *verbose_mode{
+        println!("charge profile created: {}", charge_profile);
+    }
+
+    let res = client
+        .post(url)
+        .json(charge_profile);
 }
 
 // Time_allotment is just what it sounds like, 
 // charge_amount is the amount of SoC that should be recovered at the end of the time allotment and
 // should be out of 100
-async fn get_charge_rate(time_allotment: Duration, charge_amount: i8) -> f32 {
+async fn get_charge_rate(time_allotment: Duration, charge_amount: i8, battery_capacity: &i32, verbose_mode: &bool) -> f32 {
     /*
      * Given a bus' current state of charge, determine the rate of charge 
      * needed to charge the bus by the desired time
@@ -130,10 +144,13 @@ async fn get_charge_rate(time_allotment: Duration, charge_amount: i8) -> f32 {
      *               in desired timeframe.
      */
 
-    (charge_amount as f32 / 100.0) / 
-    (time_allotment.num_hours() as f32 + 
-    (time_allotment.num_minutes() as f32 / 60.0))
-
+    let charge_rate = (charge_amount as f32 / 100.0) * (*battery_capacity as f32) / 
+                           (time_allotment.num_hours() as f32 + 
+                           (time_allotment.num_minutes() as f32 / 60.0));
+    if *verbose_mode {
+        println!("charge rate {} calculated for charging {}% over {} minutes", charge_rate, charge_amount, time_allotment);
+    }
+    return charge_rate;
 
 }
 
@@ -158,7 +175,7 @@ async fn create_charging_strategy() {
      */
 }
 
-async fn runner_loop(client: &Client, chargerhub_url: &String, desired_soc: &i8) {
+async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capacity: &i32, desired_soc: &i8, verbose_mode: &bool) {
     const TIME_BETWEEN_LOOPS: u64 = 5 * 60; // number of minutes to wait between loops
                                             
     let TIME_BETWEEN_RECALCULATIONS = Duration::new(90 * 60, 0).expect("Static duration failed to initialize"); // number of minutes to wait between recalculating
@@ -190,6 +207,10 @@ async fn runner_loop(client: &Client, chargerhub_url: &String, desired_soc: &i8)
     } else {
        stop_time
     };
+    
+    if *verbose_mode {
+        println!("time between loops: {},\ntime between recalculations: {},\ncurtailment start time: {},\ncurtailment stop time: {}", &TIME_BETWEEN_LOOPS, &TIME_BETWEEN_RECALCULATIONS, &start_time, &stop_time);
+    }
 
     /*
      * This will be the loop which actually performs the steps necessary to perform curtailment
@@ -202,30 +223,34 @@ async fn runner_loop(client: &Client, chargerhub_url: &String, desired_soc: &i8)
         //Conditions to recalculate charges includes if the current time is after bus routes end for the day, and a bus being connected/disconnected from the pool.
         //Additionally, charge profiles should be recalculated every N minutes to ensure charging is completed by the desired time
         if !initial_calculation || time_delta >= TIME_BETWEEN_RECALCULATIONS && right_now >= start_time {
-            // Set to true since initial value calculated after this point
-            initial_calculation = true;
+            initial_calculation = true; // Set to true since initial value calculated after this point
+                                        
             last_recalculation = Local::now();
+
             //Obtain all chargers at the bus depo site. 
-            let chargers = get_chargers(&client, chargerhub_url, 2)
+            let chargers = get_chargers(&client, chargerhub_url, 2, verbose_mode)
                 .await
                 .expect("Unable to grab chargers from charge site");
 
             //Grab meter values for each charger
-            let meter_values = get_meter_values(&client, chargerhub_url, chargers)
+            let meter_values = get_meter_values(&client, chargerhub_url, chargers, verbose_mode)
                 .await
                 .expect("Failed to obtain meter values from charger hub");
             //Create charge profiles
             for value in meter_values {
                 
                 //parse the SOC out of the meter values and get % charge needed to get to desired SOC
-                let soc_needed = desired_soc -  parse_meterval(&value);
+                let soc_needed = desired_soc - parse_meterval(&value);
                 //Calculate the power needed for each bus and create a charge profile based on the needed power
                 let time_to_charge = stop_time - right_now;
-                let charge_rate = get_charge_rate(time_to_charge, soc_needed).await;
+                let charge_rate = get_charge_rate(time_to_charge, soc_needed, battery_capacity, verbose_mode).await;
 
                 //submit charge profiles to chargerhub which should handle the communication with the charger
-                create_charge_profile(client, chargerhub_url, &value.connector_id, &value.charger_id, charge_rate).await;
+                create_charge_profile(client, chargerhub_url, &value.connector_id, &value.charger_id, charge_rate, verbose_mode).await;
             }
+        }
+        else {
+            println!("Conditions not met to recalculate new charge profiles.\nchecking again at {}", right_now + TIME_BETWEEN_RECALCULATIONS);
         }
         //Sleep for reasonable amount of time
         std::thread::sleep(time::Duration::from_secs(TIME_BETWEEN_LOOPS));
@@ -258,9 +283,14 @@ async fn main() -> Result<(), Error>{
         .expect("Something went wrong reading in the desired SOC. Please verify DESIRED_SOC is of type i8");
 
 
+    let verbose_mode = dotenv::var("VERBOSE_MODE")
+        .expect("VERBOSE_MODE was not specified in .env")
+        .parse::<bool>()
+        .unwrap_or_else(|_| return false); // default to false if not specified
+
     let client = Client::new();
 
-    runner_loop(&client, &chargerhub_url, &desired_soc)
+    runner_loop(&client, &chargerhub_url, &battery_capacity, &desired_soc, &verbose_mode).await;
     
     Ok(())
 }

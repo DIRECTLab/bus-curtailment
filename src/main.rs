@@ -122,6 +122,7 @@ async fn create_charge_profile(client: &Client, req_url: &String, connector_id: 
                 "stack_level": 0,
                 "charge_rates": [charge_rate],
                 "purpose": "TxDefaultProfile",
+                "start_schedule": Utc::now(),
             });
 
     if *verbose_mode{
@@ -226,7 +227,9 @@ async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capacity:
         let time_delta = right_now - last_recalculation;
         //Conditions to recalculate charges includes if the current time is after bus routes end for the day, and a bus being connected/disconnected from the pool.
         //Additionally, charge profiles should be recalculated every N minutes to ensure charging is completed by the desired time
-        if !initial_calculation || time_delta >= TIME_BETWEEN_RECALCULATIONS && right_now >= start_time {
+        if !initial_calculation && time_delta >= TIME_BETWEEN_RECALCULATIONS && right_now >= start_time {
+
+
             initial_calculation = true; // Set to true since initial value calculated after this point
                                         
             last_recalculation = Local::now();

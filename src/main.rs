@@ -50,7 +50,7 @@ async fn get_meter_values(client: &Client, req_url: &String, chargers: Vec<Charg
                 json!({
                     "charger_id": charger.id,
                     "descending": true,
-                    "limit": 1
+                    "limit": 2 // one meter val for each connector
                 }).to_string()
             )
             .send()
@@ -59,7 +59,9 @@ async fn get_meter_values(client: &Client, req_url: &String, chargers: Vec<Charg
         let res_body = res.text().await?;
 
         let meter_val: Vec<MeterValue> = serde_json::from_str(&res_body).unwrap();
-        meter_values.push(meter_val[0].clone());
+        for value in meter_val {
+            meter_values.push(value.clone());
+        }
     };
 
     if *verbose_mode {
@@ -159,6 +161,19 @@ async fn get_charge_rate(time_allotment: Duration, charge_amount: i8, battery_ca
 
 }
 
+
+async fn did_transactions_change(old_transactions: Vec<Charger>, new_transactions: Vec<Charger>) -> bool{
+    /*
+     * Given a list of chargers, did the active transactions on those chargers change?
+     * 
+     * @Input  - old_transactions: transactions recorded from previous state
+     *         - new_transactions: transactions from new iteration
+     *
+     * @Output - boolean representing if state changed between
+     */
+    false
+}
+
 async fn assign_charge_rates() {
     /*
      * Iterate through time steps and determine how much to charge each vehicle
@@ -227,7 +242,13 @@ async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capacity:
         let time_delta = right_now - last_recalculation;
         //Conditions to recalculate charges includes if the current time is after bus routes end for the day, and a bus being connected/disconnected from the pool.
         //Additionally, charge profiles should be recalculated every N minutes to ensure charging is completed by the desired time
-        if !initial_calculation && time_delta >= TIME_BETWEEN_RECALCULATIONS && right_now >= start_time {
+
+        
+        //TODO: Add check here for if new busses were connected/disconnected
+        //We could also add rules here for charge behavior based on time of night
+        //(IE, if check occurred during non-peak then increase charge rate)
+
+        if !initial_calculation || time_delta >= TIME_BETWEEN_RECALCULATIONS && right_now >= start_time {
 
 
             initial_calculation = true; // Set to true since initial value calculated after this point
@@ -235,7 +256,7 @@ async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capacity:
             last_recalculation = Local::now();
 
             //Obtain all chargers at the bus depo site. 
-            let chargers = get_chargers(&client, chargerhub_url, 2, verbose_mode)
+            let chargers = get_chargers(&client, chargerhub_url, 1, verbose_mode)
                 .await
                 .expect("Unable to grab chargers from charge site");
 

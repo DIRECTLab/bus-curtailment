@@ -1,0 +1,11 @@
+{
+    "meterValue": [
+        {"timestamp": "2024-10-03T20:14:18.015Z", "sampledValue": 
+            [{"unit": "W", "value": "185456", "context": "Sample.Periodic", "measurand": "Power.Active.Import"}, 
+             {"unit": "W", "value": "259500", "context": "Sample.Periodic", "location": "Outlet", "measurand": "Power.Offered"}, 
+             {"unit": "Percent", "value": "70.0", "context": "Sample.Periodic", "location": "EV", "measurand": "SoC"}, 
+             {"unit": "Wh", "value": "627703240", "format": "Raw", "context": "Sample.Periodic", "location": "Outlet", "measurand": "Energy.Active.Import.Register"}]
+        }], 
+        "connectorId": 1, 
+        "transactionId": 1727985996
+}

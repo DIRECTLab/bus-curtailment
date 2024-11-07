@@ -6,7 +6,8 @@ use std::time;
 
 async fn get_chargers(client: &Client, req_url: &String, location_id: i32, verbose_mode: &bool) -> Result<Vec<Charger>, Error> {
     /*
-     * Get all chargers and parse their output to find chargers with the desired location id
+     * Get all chargers and parse their output to find chargers with the desired location id and an
+     * active transaction
      **/
     let mut charger_url_path: String = req_url.clone();
     charger_url_path.push_str("/data/chargers");
@@ -42,32 +43,39 @@ async fn get_meter_values(client: &Client, req_url: &String, chargers: Vec<Charg
     let mut metervalues_url_path: String = req_url.to_owned();
     metervalues_url_path.push_str("/data/meter-values");
     for charger in chargers {
-        
-        let res = client
-            .get(&metervalues_url_path)
-            .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
-            .body(
-                json!({
-                    "charger_id": charger.id,
-                    "descending": true,
-                    "limit": 2 // one meter val for each connector
-                }).to_string()
-            )
-            .send()
-        .await?;
-        
-        let res_body = res.text().await?;
+        for connector in 1..3{ // for each connector
+            println!("Checking connector {}", connector);
+            let res = client
+                    .get(&metervalues_url_path)
+                    .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
+                    .body(
+                        json!({
+                            "charger_id": charger.id,
+                            "descending": true,
+                            "limit": 1, // one meter val for each connector
+                            "connector_id": connector
+                        }).to_string()
+                    )
+                    .send()
+                    .await?;
 
-        let meter_val: Vec<MeterValue> = serde_json::from_str(&res_body).unwrap();
-        for value in meter_val {
-            meter_values.push(value.clone());
+
+                
+                let res_body = res.text().await?;
+
+                let meter_val: Vec<MeterValue> = serde_json::from_str(&res_body).unwrap();
+                if is_meterval_active(req_url, client, &meter_val[0], verbose_mode).await {
+                    meter_values.push(meter_val[0].clone());
+                }
+
+                if *verbose_mode {
+                    println!("{:#?}", meter_val);
+                }
+            };
+
+
         }
-    };
-
-    if *verbose_mode {
-        println!("{:#?}", meter_values);
-    }
-
+        
     Ok(meter_values)
 }
 
@@ -87,9 +95,18 @@ fn parse_meterval(metervalue: &MeterValue) -> i8{
     String::from(meterval["value"].as_str().unwrap()).parse::<f32>().unwrap() as i8
 }
 
-async fn create_charge_profile(client: &Client, req_url: &String, connector_id: &i32, charger_id: &String, charge_rate: f32, verbose_mode: &bool) {
+async fn create_charge_profile(
+    client: &Client, 
+    req_url: &String, 
+    connector_id: &i32, 
+    charger_id: &String, 
+    charge_rate: &mut f32, 
+    verbose_mode: &bool,
+    lower_bnd: i32,
+    upper_bnd: i32) 
+{
     /*
-     * Create and send a charge profile to chargerhub which will
+     a* Create and send a charge profile to chargerhub which will
      * act on curtailment schedule. This charging profile should
      * have multiple rates throughout the transaciton to curtail
      * the entire charge. This is to say place all charging behavior
@@ -108,11 +125,17 @@ async fn create_charge_profile(client: &Client, req_url: &String, connector_id: 
     start_periods: Option<Vec<u32>>,
     start_schedule: Option<DateTime<Utc>>
     */
+    
+    // clamp charge rate between upper and lower bound
+    if *charge_rate < lower_bnd as f32 {
+        *charge_rate = lower_bnd as f32;
+    }
 
-    let mut url: String = req_url.to_owned();
-        url.push_str(&format!("/data/{}/transactions", charger_id));
+    if *charge_rate > upper_bnd as f32{
+        *charge_rate = upper_bnd as f32;
+    }
 
-    let transaction_res = client.get(url);
+
     // We need to get the connector id from the transaction
 
     let mut url: String = req_url.clone();
@@ -174,6 +197,51 @@ async fn did_transactions_change(old_transactions: Vec<Charger>, new_transaction
     false
 }
 
+async fn is_meterval_active(req_url: &String, client: &Client, metervalue: &MeterValue, verbose_mode: &bool) -> bool{
+    /*
+     * Is the meter value for a transaction which has not ended?
+     * will check if stop time is not null and return true or false
+     * accordingly.
+     */
+
+    let mut url: String = req_url.to_owned();
+        url.push_str(&format!("/data/{}/transactions", metervalue.charger_id));
+
+    let res = client
+        .get(url)
+        .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
+        .body(
+            json!({
+                "limit": 1,
+                "connector_id": metervalue.connector_id
+            }).to_string()
+        )
+        .send()
+        .await
+        .expect("Unable to process response from server");
+
+    let res_body = res.text().await.unwrap();
+    let transaction_data: Vec<Transaction> = serde_json::from_str(&res_body).expect("Unable to deserialize JSON into ");
+    if *verbose_mode {
+        println!("{:#?}", transaction_data);
+    }
+    if transaction_data[0].stop_reason == None {
+        if *verbose_mode {
+            println!("Transaction on this connector is still active");
+        }
+        true
+    }
+    else {
+        if *verbose_mode {
+            println!("Transaction on this connector is no longer active");
+        }
+        false
+    }
+    
+
+
+}
+
 async fn assign_charge_rates() {
     /*
      * Iterate through time steps and determine how much to charge each vehicle
@@ -196,6 +264,18 @@ async fn create_charging_strategy() {
 }
 
 async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capacity: &i32, desired_soc: &i8, verbose_mode: &bool) {
+
+    let charge_clamp_lower = dotenv::var("CHARGE_CLAMP_LOWER")
+        .expect("DESIRED_SOC was not specified in .env")
+        .parse::<i32>()
+        .expect("Something went wrong reading in the lower bound for charge rates. Please verify CHARGE_CLAMP_LOWER is of type i32");
+
+    let charge_clamp_upper = dotenv::var("CHARGE_CLAMP_UPPER")
+        .expect("DESIRED_SOC was not specified in .env")
+        .parse::<i32>()
+        .expect("Something went wrong reading in the lower bound for charge rates. Please verify CHARGE_CLAMP_LOWER is of type i32");
+
+
     const TIME_BETWEEN_LOOPS: u64 = 5 * 60; // number of minutes to wait between loops
                                             
     let TIME_BETWEEN_RECALCULATIONS = Duration::new(90 * 60, 0).expect("Static duration failed to initialize"); // number of minutes to wait between recalculating
@@ -266,15 +346,16 @@ async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capacity:
                 .expect("Failed to obtain meter values from charger hub");
             //Create charge profiles
             for value in meter_values {
-                
+                //Check that MeterValue is for active transaction
+
                 //parse the SOC out of the meter values and get % charge needed to get to desired SOC
                 let soc_needed = desired_soc - parse_meterval(&value);
                 //Calculate the power needed for each bus and create a charge profile based on the needed power
                 let time_to_charge = stop_time - right_now;
-                let charge_rate = get_charge_rate(time_to_charge, soc_needed, battery_capacity, verbose_mode).await;
+                let mut charge_rate = get_charge_rate(time_to_charge, soc_needed, battery_capacity, verbose_mode).await;
 
                 //submit charge profiles to chargerhub which should handle the communication with the charger
-                create_charge_profile(client, chargerhub_url, &value.connector_id, &value.charger_id, charge_rate, verbose_mode).await;
+                create_charge_profile(client, chargerhub_url, &value.connector_id, &value.charger_id, &mut charge_rate, verbose_mode, charge_clamp_lower, charge_clamp_upper).await;
             }
         }
         else {
@@ -315,15 +396,7 @@ async fn main() -> Result<(), Error>{
         .parse::<bool>()
         .unwrap_or_else(|_| return false); // default to false if not specified
     
-    let charge_clamp_lower = dotenv::var("CHARGE_CLAMP_LOWER")
-        .expect("DESIRED_SOC was not specified in .env")
-        .parse::<i32>()
-        .expect("Something went wrong reading in the lower bound for charge rates. Please verify CHARGE_CLAMP_LOWER is of type i32");
 
-    let charge_clamp_upper = dotenv::var("CHARGE_CLAMP_UPPER")
-        .expect("DESIRED_SOC was not specified in .env")
-        .parse::<i32>()
-        .expect("Something went wrong reading in the lower bound for charge rates. Please verify CHARGE_CLAMP_LOWER is of type i32");
 
 
 
@@ -364,4 +437,18 @@ pub struct Charger {
 pub enum CommunicationType {
     RustDirectOcpp,
     OpenAdrMicrogrid
+}
+
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct Transaction {
+    pub connector_id:    i32,
+    pub id_tag:          String,
+    pub meter_start:     i32,
+    pub timestamp_start: DateTime<Utc>,
+    pub transaction_id:  Option<i32>,
+    pub meter_stop:      Option<i32>,
+    pub timestamp_stop:  Option<DateTime<Utc>>,
+    pub stop_reason:     Option<String>,
+    pub charger_id:      Option<String>
 }

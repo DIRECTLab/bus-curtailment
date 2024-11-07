@@ -1,19 +1,17 @@
 use reqwest::{Error, Client, header::{HeaderValue, CONTENT_TYPE}};
-use chrono::{DateTime, Duration, Local, Timelike, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::{Duration};
 use serde_json::json;
-use std::time;
 use crate::{
     types::{Charger, MeterValue},
     util::is_meterval_active
 };
 
-pub async fn get_chargers(client: &Client, req_url: &String, location_id: i32, verbose_mode: &bool) -> Result<Vec<Charger>, Error> {
+pub async fn get_chargers(client: &Client, req_url: &str, location_id: i32, verbose_mode: &bool) -> Result<Vec<Charger>, Error> {
     /*
      * Get all chargers and parse their output to find chargers with the desired location id and an
      * active transaction
      **/
-    let mut charger_url_path: String = req_url.clone();
+    let mut charger_url_path: String = req_url.to_owned();
     charger_url_path.push_str("/data/chargers");
 
     let res = client.get(&charger_url_path).send().await?;

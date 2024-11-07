@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Duration, Local, Timelike, Utc};
+use chrono::{DateTime, Utc};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct MeterValue {
@@ -8,11 +8,6 @@ pub struct MeterValue {
     pub transaction_id: i32,
     pub time_stamp: DateTime<Utc>,
     pub sampled_value: serde_json::Value
-}
-
-pub struct Soc {
-    pub charger_id: String,
-    pub value: f32
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -32,6 +27,10 @@ pub enum CommunicationType {
     OpenAdrMicrogrid
 }
 
+pub struct ChargingBounds {
+    pub lower_bnd: i32,
+    pub upper_bnd: i32
+}
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Transaction {

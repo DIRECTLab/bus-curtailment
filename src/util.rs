@@ -1,5 +1,5 @@
 use crate::types::{MeterValue, Transaction};
-use reqwest::{Error, Client, header::{HeaderValue, CONTENT_TYPE}};
+use reqwest::{Client, header::{HeaderValue, CONTENT_TYPE}};
 use serde_json::json;
 
 pub fn parse_meterval(metervalue: &MeterValue) -> i8{
@@ -46,7 +46,7 @@ pub async fn is_meterval_active(req_url: &String, client: &Client, metervalue: &
     if *verbose_mode {
         println!("{:#?}", transaction_data);
     }
-    if transaction_data[0].stop_reason == None {
+    if transaction_data[0].stop_reason.is_none() {
         if *verbose_mode {
             println!("Transaction on this connector is still active");
         }

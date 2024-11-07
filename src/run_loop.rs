@@ -1,10 +1,11 @@
-use reqwest::{Error, Client, header::{HeaderValue, CONTENT_TYPE}};
-use chrono::{DateTime, Duration, Local, Timelike, Utc};
+use reqwest::{Client};
+use chrono::{Duration, Local, Timelike};
 use std::time;
 use crate::{
     get_data::{get_chargers, get_meter_values, get_charge_rate},
     send_data::create_charge_profile,
-    util::{is_meterval_active, parse_meterval},
+    util::{parse_meterval},
+    types::ChargingBounds
 
 };
 pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capacity: &i32, desired_soc: &i8, verbose_mode: &bool) {
@@ -22,7 +23,7 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
 
     const TIME_BETWEEN_LOOPS: u64 = 5 * 60; // number of minutes to wait between loops
                                             
-    let TIME_BETWEEN_RECALCULATIONS = Duration::new(90 * 60, 0).expect("Static duration failed to initialize"); // number of minutes to wait between recalculating
+    let time_between_recalculations = Duration::new(90 * 60, 0).expect("Static duration failed to initialize"); // number of minutes to wait between recalculating
                                                                                                                                              // charge charge rates
                                                  
     let mut initial_calculation = false; // have the initial charge profiles been calculated?
@@ -53,7 +54,7 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
     };
     
     if *verbose_mode {
-        println!("time between loops: {},\ntime between recalculations: {},\ncurtailment start time: {},\ncurtailment stop time: {}", &TIME_BETWEEN_LOOPS, &TIME_BETWEEN_RECALCULATIONS, &start_time, &stop_time);
+        println!("time between loops: {},\ntime between recalculations: {},\ncurtailment start time: {},\ncurtailment stop time: {}", &TIME_BETWEEN_LOOPS, &time_between_recalculations, &start_time, &stop_time);
     }
 
     /*
@@ -72,7 +73,7 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
         //We could also add rules here for charge behavior based on time of night
         //(IE, if check occurred during non-peak then increase charge rate)
 
-        if !initial_calculation || time_delta >= TIME_BETWEEN_RECALCULATIONS && right_now >= start_time {
+        if !initial_calculation || time_delta >= time_between_recalculations && right_now >= start_time {
 
 
             initial_calculation = true; // Set to true since initial value calculated after this point
@@ -80,12 +81,12 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
             last_recalculation = Local::now();
 
             //Obtain all chargers at the bus depo site. 
-            let chargers = get_chargers(&client, chargerhub_url, 1, verbose_mode)
+            let chargers = get_chargers(client, chargerhub_url, 1, verbose_mode)
                 .await
                 .expect("Unable to grab chargers from charge site");
 
             //Grab meter values for each charger
-            let meter_values = get_meter_values(&client, chargerhub_url, chargers, verbose_mode)
+            let meter_values = get_meter_values(client, chargerhub_url, chargers, verbose_mode)
                 .await
                 .expect("Failed to obtain meter values from charger hub");
             //Create charge profiles
@@ -97,11 +98,19 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
                 let mut charge_rate = get_charge_rate(time_to_charge, soc_needed, battery_capacity, verbose_mode).await;
 
                 //submit charge profiles to chargerhub which should handle the communication with the charger
-                create_charge_profile(client, chargerhub_url, &value.connector_id, &value.charger_id, &mut charge_rate, verbose_mode, charge_clamp_lower, charge_clamp_upper).await;
+                create_charge_profile(
+                    client, 
+                    chargerhub_url, 
+                    &value.connector_id, 
+                    &value.charger_id, 
+                    &mut charge_rate, 
+                    verbose_mode, 
+                    ChargingBounds{lower_bnd: charge_clamp_lower, upper_bnd: charge_clamp_upper}
+                    ).await;
             }
         }
         else {
-            println!("Conditions not met to recalculate new charge profiles.\nchecking again at {}", right_now + TIME_BETWEEN_RECALCULATIONS);
+            println!("Conditions not met to recalculate new charge profiles.\nchecking again at {}", right_now + time_between_recalculations);
         }
         //Sleep for reasonable amount of time
         std::thread::sleep(time::Duration::from_secs(TIME_BETWEEN_LOOPS));

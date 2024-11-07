@@ -4,11 +4,7 @@ mod send_data;
 mod util;
 mod types;
 
-use reqwest::{Error, Client, header::{HeaderValue, CONTENT_TYPE}};
-use chrono::{DateTime, Duration, Local, Timelike, Utc};
-use serde::{Deserialize, Serialize};
-use serde_json::json;
-use std::time;
+use reqwest::{Error, Client};
 use crate::run_loop::runner_loop;
 
 
@@ -24,11 +20,6 @@ async fn main() -> Result<(), Error>{
         .parse::<i32>()
         .expect("Something went wrong reading in the battery capacity. Please verify BATTERY_CAPACITY is of type i32");
 
-    let peak_upper_bound = dotenv::var("PEAK_UPPER_BOUND")
-        .expect("PEAK_UPPER_BOUND was not specified in .env")
-        .parse::<i32>()
-        .expect("Something went wrong reading in the peak upper bound. Please verify PEAK_UPPER_BOUND is of type i32");
-    
     let desired_soc = dotenv::var("DESIRED_SOC")
         .expect("DESIRED_SOC was not specified in .env")
         .parse::<i8>()
@@ -37,7 +28,7 @@ async fn main() -> Result<(), Error>{
     let verbose_mode = dotenv::var("VERBOSE_MODE")
         .expect("VERBOSE_MODE was not specified in .env")
         .parse::<bool>()
-        .unwrap_or_else(|_| return false); 
+        .unwrap_or(false); 
 
     let client = Client::new();
 
@@ -45,5 +36,3 @@ async fn main() -> Result<(), Error>{
     
     Ok(())
 }
-
-

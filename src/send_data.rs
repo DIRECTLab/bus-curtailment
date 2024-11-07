@@ -1,17 +1,16 @@
-use reqwest::{Error, Client, header::{HeaderValue, CONTENT_TYPE}};
-use chrono::{DateTime, Duration, Local, Timelike, Utc};
+use reqwest::Client;
+use chrono::Utc;
 use serde_json::json;
-
+use crate::types::ChargingBounds;
 
 pub async fn create_charge_profile(
     client: &Client, 
-    req_url: &String, 
+    req_url: &str, 
     connector_id: &i32, 
     charger_id: &String, 
     charge_rate: &mut f32, 
     verbose_mode: &bool,
-    lower_bnd: i32,
-    upper_bnd: i32) 
+    crg_bounds:ChargingBounds ) 
 {
     /*
      * Create and send a charge profile to chargerhub which will
@@ -35,18 +34,18 @@ pub async fn create_charge_profile(
     */
     
     // clamp charge rate between upper and lower bound
-    if *charge_rate < lower_bnd as f32 {
-        *charge_rate = lower_bnd as f32;
+    if *charge_rate < crg_bounds.lower_bnd as f32 {
+        *charge_rate = crg_bounds.lower_bnd as f32;
     }
 
-    if *charge_rate > upper_bnd as f32{
-        *charge_rate = upper_bnd as f32;
+    if *charge_rate > crg_bounds.upper_bnd as f32{
+        *charge_rate = crg_bounds.upper_bnd as f32;
     }
 
 
     // We need to get the connector id from the transaction
 
-    let mut url: String = req_url.clone();
+    let mut url: String = req_url.to_owned();
         url.push_str(&format!("/command/{}/set-charge-profile", charger_id));
 
     let charge_profile = &json!({
@@ -62,7 +61,7 @@ pub async fn create_charge_profile(
         println!("charge profile created: {}", charge_profile);
     }
 
-    let res = client
+    let _res = client
         .post(url)
         .json(charge_profile)
         .send()

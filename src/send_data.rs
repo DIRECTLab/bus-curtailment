@@ -1,7 +1,7 @@
 use reqwest::Client;
 use chrono::Utc;
 use serde_json::json;
-use crate::types::ChargingBounds;
+use crate::types::{ChargingBounds, Charger};
 
 pub async fn create_charge_profile(
     client: &Client, 
@@ -66,4 +66,9 @@ pub async fn create_charge_profile(
         .json(charge_profile)
         .send()
         .await;
+}
+
+
+pub async fn add_soc_to_metervals(charger: Charger) {
+
 }

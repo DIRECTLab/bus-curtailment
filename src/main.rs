@@ -6,7 +6,7 @@ mod types;
 
 use reqwest::{Error, Client};
 use crate::run_loop::runner_loop;
-
+use crate::get_data::get_power_lmp;
 
 #[tokio::main]
 async fn main() -> Result<(), Error>{
@@ -31,6 +31,7 @@ async fn main() -> Result<(), Error>{
         .unwrap_or(false); 
 
     let client = Client::new();
+    
 
     runner_loop(&client, &chargerhub_url, &battery_capacity, &desired_soc, &verbose_mode).await;
     

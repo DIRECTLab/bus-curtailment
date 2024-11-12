@@ -46,15 +46,21 @@ pub async fn is_meterval_active(req_url: &String, client: &Client, metervalue: &
     if *verbose_mode {
         println!("{:#?}", transaction_data);
     }
-    if transaction_data[0].stop_reason.is_none() {
+    if transaction_data[0].stop_reason.is_none() && (transaction_data[0].voided.is_none() || !transaction_data[0].voided.unwrap())  {
         if *verbose_mode {
             println!("Transaction on this connector is still active");
         }
         true
     }
+    else if transaction_data[0].voided.is_some() && transaction_data[0].voided.unwrap() {
+        if *verbose_mode {
+            println!("Transaction on this connector was voided and hence is no longer active");
+        }
+        false
+    }
     else {
         if *verbose_mode {
-            println!("Transaction on this connector is no longer active");
+            println!("Transaction on this connector is not longer active");
         }
         false
     }

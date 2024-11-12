@@ -82,6 +82,25 @@ pub async fn get_meter_values(client: &Client, req_url: &String, chargers: Vec<C
 }
 
 
+pub async fn get_power_lmp(client: &Client) -> Result<f32, Error>{
+    /*
+     * Get the Locational Marginal Price (LMP) for the area where
+     * bus curtailment is being performed. Utilizes the Gridstatus.io
+     * API for accessing ISO price data
+     *
+     *
+     * API URL: https://api.gridstatus.io/v1/datasets/caiso_lmp_real_time_15_min/query?order=desc&filter_column=location&filter_value=PIONEER_NODE6&api_key=yourapikeyhere&limit=1
+     */
+    let req_url = "https://api.gridstatus.io/v1/datasets/caiso_lmp_real_time_15_min/query?order=desc&filter_column=location&filter_value=PIONEER_NODE6&api_key=cb9f3553c3114a508784cd06814fca6c&limit=1";
+
+    let res = client.get(req_url).send().await?;
+    let body = res.text().await?;
+
+    println!("{:?}", body);
+    Ok(0.0)
+}
+
+
 pub async fn get_charge_rate(time_allotment: Duration, charge_amount: i8, battery_capacity: &i32, verbose_mode: &bool) -> f32 {
     /*
      * Given a bus' current state of charge, determine the rate of charge 
@@ -104,7 +123,11 @@ pub async fn get_charge_rate(time_allotment: Duration, charge_amount: i8, batter
                            (time_allotment.num_hours() as f32 + 
                            (time_allotment.num_minutes() as f32 / 60.0));
     if *verbose_mode {
-        println!("charge rate {} calculated for charging +{}% over {} minutes", charge_rate, charge_amount, time_allotment.num_minutes());
+        println!("charge rate {}Kw calculated for charging +{}% over {} minutes", charge_rate, charge_amount, time_allotment.num_minutes());
     }
-    charge_rate
+    charge_rate * 1000.0
 }
+
+
+
+

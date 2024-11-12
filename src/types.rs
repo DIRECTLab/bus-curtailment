@@ -42,5 +42,6 @@ pub struct Transaction {
     pub meter_stop:      Option<i32>,
     pub timestamp_stop:  Option<DateTime<Utc>>,
     pub stop_reason:     Option<String>,
-    pub charger_id:      Option<String>
+    pub charger_id:      Option<String>,
+    pub voided:          Option<bool>
 }

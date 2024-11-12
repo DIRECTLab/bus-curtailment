@@ -1,10 +1,10 @@
-use reqwest::{Client};
+use reqwest::Client;
 use chrono::{Duration, Local, Timelike};
 use std::time;
 use crate::{
     get_data::{get_chargers, get_meter_values, get_charge_rate},
     send_data::create_charge_profile,
-    util::{parse_meterval},
+    util::parse_meterval,
     types::ChargingBounds
 
 };
@@ -23,8 +23,8 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
 
     const TIME_BETWEEN_LOOPS: u64 = 5 * 60; // number of minutes to wait between loops
                                             
-    let time_between_recalculations = Duration::new(90 * 60, 0).expect("Static duration failed to initialize"); // number of minutes to wait between recalculating
-                                                                                                                                             // charge charge rates
+    let time_between_recalculations = Duration::new(15 * 60, 0).expect("Static duration failed to initialize"); // number of minutes to wait between recalculating
+                                                                                                                // charge charge rates
                                                  
     let mut initial_calculation = false; // have the initial charge profiles been calculated?
                                                
@@ -53,8 +53,16 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
        stop_time
     };
     
+    let mut right_now = Local::now();
+
     if *verbose_mode {
-        println!("time between loops: {},\ntime between recalculations: {},\ncurtailment start time: {},\ncurtailment stop time: {}", &TIME_BETWEEN_LOOPS, &time_between_recalculations, &start_time, &stop_time);
+        println!("time between loops: {},\ntime between recalculations: {},\ncurtailment start time: {},\ncurtailment stop time: {},\ncurrent server time: {}", 
+            &TIME_BETWEEN_LOOPS, 
+            &time_between_recalculations, 
+            &start_time, 
+            &stop_time, 
+            &right_now
+        );
     }
 
     /*
@@ -63,7 +71,7 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
     loop {
 
         //Check that the current time is after the last route ends and that no conditions have been met to recalculate the charge rates
-        let right_now = Local::now();
+        right_now = Local::now();
         let time_delta = right_now - last_recalculation;
         //Conditions to recalculate charges includes if the current time is after bus routes end for the day, and a bus being connected/disconnected from the pool.
         //Additionally, charge profiles should be recalculated every N minutes to ensure charging is completed by the desired time
@@ -73,7 +81,7 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
         //We could also add rules here for charge behavior based on time of night
         //(IE, if check occurred during non-peak then increase charge rate)
 
-        if !initial_calculation || time_delta >= time_between_recalculations && right_now >= start_time {
+        if !initial_calculation && time_delta >= time_between_recalculations && right_now >= start_time {
 
 
             initial_calculation = true; // Set to true since initial value calculated after this point

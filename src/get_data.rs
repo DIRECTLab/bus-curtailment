@@ -91,7 +91,7 @@ pub async fn get_power_lmp(client: &Client) -> Result<f32, Error>{
      *
      * API URL: https://api.gridstatus.io/v1/datasets/caiso_lmp_real_time_15_min/query?order=desc&filter_column=location&filter_value=PIONEER_NODE6&api_key=yourapikeyhere&limit=1
      */
-    let req_url = "https://api.gridstatus.io/v1/datasets/caiso_lmp_real_time_15_min/query?order=desc&filter_column=location&filter_value=PIONEER_NODE6&api_key=cb9f3553c3114a508784cd06814fca6c&limit=1";
+    let req_url = "https://api.gridstatus.io/v1/datasets/caiso_lmp_real_time_15_min/query?order=desc&filter_column=location&filter_value=PIONEER_NODE6&api_key=NOEKEY4u&limit=1";
 
     let res = client.get(req_url).send().await?;
     let body = res.text().await?;

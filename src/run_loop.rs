@@ -1,3 +1,4 @@
+use dotenv::dotenv;
 use reqwest::Client;
 use chrono::{Duration, Local, Timelike};
 use std::time;
@@ -6,8 +7,8 @@ use crate::{
     send_data::create_charge_profile,
     util::parse_meterval,
     types::ChargingBounds
-
 };
+
 pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capacity: &i32, desired_soc: &i8, verbose_mode: &bool) {
 
     let charge_clamp_lower = dotenv::var("CHARGE_CLAMP_LOWER")
@@ -20,11 +21,16 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
         .parse::<i32>()
         .expect("Something went wrong reading in the lower bound for charge rates. Please verify CHARGE_CLAMP_LOWER is of type i32");
 
+    let location_id = dotenv::var("LOCATION_ID")
+        .expect("LOCATION_ID was not specified in .env")
+        .parse::<i32>()
+        .expect("Something went wrong reading in the location ID for relevant chargers. Please verify LOCATION_ID is of type u32");
+
 
     const TIME_BETWEEN_LOOPS: u64 = 5 * 60; // number of minutes to wait between loops
                                             
     let time_between_recalculations = Duration::new(15 * 60, 0).expect("Static duration failed to initialize"); // number of minutes to wait between recalculating
-                                                                                                                // charge charge rates
+                                                                                                                                             // charge charge rates
                                                  
     let mut initial_calculation = false; // have the initial charge profiles been calculated?
                                                
@@ -89,7 +95,7 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
             last_recalculation = Local::now();
 
             //Obtain all chargers at the bus depo site. 
-            let chargers = get_chargers(client, chargerhub_url, 1, verbose_mode)
+            let chargers = get_chargers(client, chargerhub_url, location_id, verbose_mode)
                 .await
                 .expect("Unable to grab chargers from charge site");
 

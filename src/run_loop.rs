@@ -1,6 +1,6 @@
 use dotenv::dotenv;
 use reqwest::Client;
-use chrono::{Duration, Local, Timelike};
+use chrono::{DateTime, Duration, Local, Timelike, Utc};
 use std::time;
 use crate::{
     get_data::{get_chargers, get_meter_values, get_charge_rate},
@@ -36,29 +36,11 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
                                                
     let mut last_recalculation = Local::now(); // last time new charge profiles were calculated
                                                                 
-    let start_time = Local::now() // only perform curtailment if after start time
-        .with_hour(19)
-        .unwrap()
-        .with_minute(0)
-        .unwrap()
-        .with_second(0)
-        .unwrap();
+    let mut start_time =  set_start_time();
 
     // Set time to stop curtailment to 5am. If before midnight, add day to chrono datetime
-    let mut stop_time = Local::now()
-        .with_hour(5)
-        .unwrap()
-        .with_minute(0)
-        .unwrap()
-        .with_second(0)
-        .unwrap();
+    let mut stop_time = set_stop_time(last_recalculation);
 
-    stop_time = if last_recalculation > stop_time { // move stop time forward by a day if
-       stop_time + Duration::days(1)                // calculation made before midnight
-    } else {
-       stop_time
-    };
-    
     let mut right_now = Local::now();
 
     if *verbose_mode {
@@ -81,6 +63,14 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
         let time_delta = right_now - last_recalculation;
         //Conditions to recalculate charges includes if the current time is after bus routes end for the day, and a bus being connected/disconnected from the pool.
         //Additionally, charge profiles should be recalculated every N minutes to ensure charging is completed by the desired time
+
+        //Check that right now is within a day of the start time, otherwise reset the start/end times
+        let start_delta = start_time - right_now;
+        if start_delta.num_hours() >= 24 {
+            last_recalculation = Local::now();
+            start_time = set_start_time();
+            stop_time = set_stop_time(last_recalculation)
+        }
 
         
         //TODO: Add check here for if new busses were connected/disconnected
@@ -118,6 +108,7 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
                     &value.connector_id, 
                     &value.charger_id, 
                     &mut charge_rate, 
+                    stop_time.with_timezone(&Utc),
                     verbose_mode, 
                     ChargingBounds{lower_bnd: charge_clamp_lower, upper_bnd: charge_clamp_upper}
                     ).await;
@@ -130,4 +121,35 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
         std::thread::sleep(time::Duration::from_secs(TIME_BETWEEN_LOOPS));
     }
 
+}
+
+
+fn set_start_time() -> DateTime<Local>{
+    let start_time = Local::now() // only perform curtailment if after start time
+        .with_hour(19)
+        .unwrap()
+        .with_minute(0)
+        .unwrap()
+        .with_second(0)
+        .unwrap();
+    start_time
+}
+
+fn set_stop_time(last_recalculation: DateTime<Local>) -> DateTime<Local> {
+    // Set time to stop curtailment to 5am. If before midnight, add day to chrono datetime
+    let mut stop_time = Local::now()
+        .with_hour(5)
+        .unwrap()
+        .with_minute(0)
+        .unwrap()
+        .with_second(0)
+        .unwrap();
+
+    stop_time = if last_recalculation > stop_time { // move stop time forward by a day if
+       stop_time + Duration::days(1)                // calculation made before midnight
+    } else {
+       stop_time
+    };
+ 
+    stop_time
 }

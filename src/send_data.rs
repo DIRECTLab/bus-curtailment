@@ -1,5 +1,5 @@
 use reqwest::Client;
-use chrono::Utc;
+use chrono::{Utc, DateTime};
 use serde_json::json;
 use crate::types::{ChargingBounds, Charger};
 
@@ -8,9 +8,10 @@ pub async fn create_charge_profile(
     req_url: &str, 
     connector_id: &i32, 
     charger_id: &String, 
-    charge_rate: &mut f32, 
+    charge_rate: &mut f32,
+    valid_to: DateTime<Utc>,
     verbose_mode: &bool,
-    crg_bounds:ChargingBounds ) 
+    crg_bounds: ChargingBounds ) 
 {
     /*
      * Create and send a charge profile to chargerhub which will

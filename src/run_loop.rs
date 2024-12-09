@@ -12,12 +12,12 @@ use crate::{
 pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capacity: &i32, desired_soc: &i8, verbose_mode: &bool) {
 
     let charge_clamp_lower = dotenv::var("CHARGE_CLAMP_LOWER")
-        .expect("DESIRED_SOC was not specified in .env")
+        .expect("CHARGE_CLAMP_LOWER was not specified in .env")
         .parse::<i32>()
         .expect("Something went wrong reading in the lower bound for charge rates. Please verify CHARGE_CLAMP_LOWER is of type i32");
 
     let charge_clamp_upper = dotenv::var("CHARGE_CLAMP_UPPER")
-        .expect("DESIRED_SOC was not specified in .env")
+        .expect("CHARGE_CLAMP_UPPER was not specified in .env")
         .parse::<i32>()
         .expect("Something went wrong reading in the lower bound for charge rates. Please verify CHARGE_CLAMP_LOWER is of type i32");
 

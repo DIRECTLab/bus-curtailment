@@ -4,6 +4,7 @@ mod send_data;
 mod util;
 mod types;
 
+use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::{Error, Client};
 use crate::run_loop::runner_loop;
 use crate::get_data::get_power_lmp;
@@ -30,7 +31,17 @@ async fn main() -> Result<(), Error>{
         .parse::<bool>()
         .unwrap_or(false); 
 
-    let client = Client::new();
+    let authorization_header = dotenv::var("AUTHORIZATION_HEADER")
+        .expect("Must define AUTHORIZATION_HEADER in the .env");
+
+    println!("{authorization_header}");
+
+    let mut headers = HeaderMap::new();
+    headers.insert(AUTHORIZATION, HeaderValue::from_str(&authorization_header).unwrap());
+
+    let client = Client::builder()
+        .default_headers(headers)
+        .build().unwrap();
     
 
     runner_loop(&client, &chargerhub_url, &battery_capacity, &desired_soc, &verbose_mode).await;

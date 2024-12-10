@@ -7,7 +7,6 @@ mod types;
 use reqwest::header::{HeaderMap, HeaderValue, AUTHORIZATION};
 use reqwest::{Error, Client};
 use crate::run_loop::runner_loop;
-use crate::get_data::get_power_lmp;
 
 #[tokio::main]
 async fn main() -> Result<(), Error>{
@@ -36,15 +35,17 @@ async fn main() -> Result<(), Error>{
 
     println!("{authorization_header}");
 
-    let mut headers = HeaderMap::new();
-    headers.insert(AUTHORIZATION, HeaderValue::from_str(&authorization_header).unwrap());
 
     let client = Client::builder()
-        .default_headers(headers)
+        .default_headers({
+            let mut headers = HeaderMap::new();
+            headers.insert(AUTHORIZATION, HeaderValue::from_str(&authorization_header.to_owned()).unwrap());
+            headers
+        })
         .build().unwrap();
     
 
-    runner_loop(&client, &chargerhub_url, &battery_capacity, &desired_soc, &verbose_mode).await;
+    runner_loop(&client, &chargerhub_url, &battery_capacity, &desired_soc, &verbose_mode, &authorization_header).await;
     
     Ok(())
 }

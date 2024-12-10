@@ -1,7 +1,8 @@
-use reqwest::Client;
+use reqwest::{Client, header::{AUTHORIZATION, HeaderValue}};
 use chrono::{Utc, DateTime};
 use serde_json::json;
 use crate::types::{ChargingBounds, Charger};
+
 
 pub async fn create_charge_profile(
     client: &Client, 
@@ -11,7 +12,8 @@ pub async fn create_charge_profile(
     charge_rate: &mut f32,
     valid_to: DateTime<Utc>,
     verbose_mode: &bool,
-    crg_bounds: ChargingBounds ) 
+    crg_bounds: ChargingBounds,
+    auth_key: &String) 
 {
     /*
      * Create and send a charge profile to chargerhub which will
@@ -62,8 +64,17 @@ pub async fn create_charge_profile(
         println!("charge profile created: {}", charge_profile);
     }
 
+    // Create a HeaderValue for the Authorization header
+    let auth_header_value = HeaderValue::from_str(&format!("Bearer {}", auth_key))
+        .map_err(|err| {
+            eprintln!("Invalid header value: {}", err);
+        }).unwrap();
+
+
+
     let _res = client
         .post(url)
+        .header(AUTHORIZATION, auth_header_value)
         .json(charge_profile)
         .send()
         .await;

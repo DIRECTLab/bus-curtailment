@@ -1,5 +1,5 @@
 use crate::types::{MeterValue, Transaction};
-use reqwest::{Client, header::{HeaderValue, CONTENT_TYPE}};
+use reqwest::{Client, header::{HeaderValue, CONTENT_TYPE, AUTHORIZATION}};
 use serde_json::json;
 
 pub fn parse_meterval(metervalue: &MeterValue) -> i8{
@@ -18,7 +18,7 @@ pub fn parse_meterval(metervalue: &MeterValue) -> i8{
     String::from(meterval["value"].as_str().unwrap()).parse::<f32>().unwrap() as i8
 }
 
-pub async fn is_meterval_active(req_url: &String, client: &Client, metervalue: &MeterValue, verbose_mode: &bool) -> bool{
+pub async fn is_meterval_active(req_url: &String, client: &Client, metervalue: &MeterValue, verbose_mode: &bool, auth_key: &String) -> bool{
     /*
      * Is the meter value for a transaction which has not ended?
      * will check if stop time is not null and return true or false
@@ -28,9 +28,18 @@ pub async fn is_meterval_active(req_url: &String, client: &Client, metervalue: &
     let mut url: String = req_url.to_owned();
         url.push_str(&format!("/data/{}/transactions", metervalue.charger_id));
 
+    let auth_header_value = HeaderValue::from_str(&format!("Bearer {}", auth_key))
+        .map_err(|err| {
+            eprintln!("Invalid header value: {}", err);
+        }).unwrap();
+
+
+
+
     let res = client
         .get(url)
         .header(CONTENT_TYPE, HeaderValue::from_static("application/json"))
+        .header(AUTHORIZATION, auth_header_value)
         .body(
             json!({
                 "limit": 1,

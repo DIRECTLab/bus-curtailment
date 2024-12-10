@@ -9,7 +9,7 @@ use crate::{
     types::ChargingBounds
 };
 
-pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capacity: &i32, desired_soc: &i8, verbose_mode: &bool) {
+pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capacity: &i32, desired_soc: &i8, verbose_mode: &bool, auth_key: &String) {
 
     let charge_clamp_lower = dotenv::var("CHARGE_CLAMP_LOWER")
         .expect("CHARGE_CLAMP_LOWER was not specified in .env")
@@ -33,7 +33,7 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
                                                                                                                                              // charge charge rates
                                                  
                                                
-    let mut last_recalculation = Local::now(); // last time new charge profiles were calculated
+    let mut last_recalculation = Local::now().with_hour(6).unwrap(); // last time new charge profiles were calculated
                                                                 
     let mut start_time =  set_start_time();
 
@@ -83,12 +83,12 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
             last_recalculation = Local::now();
 
             //Obtain all chargers at the bus depo site. 
-            let chargers = get_chargers(client, chargerhub_url, location_id, verbose_mode)
+            let chargers = get_chargers(client, chargerhub_url, location_id, verbose_mode, auth_key)
                 .await
                 .expect("Unable to grab chargers from charge site");
 
             //Grab meter values for each charger
-            let meter_values = get_meter_values(client, chargerhub_url, chargers, verbose_mode)
+            let meter_values = get_meter_values(client, chargerhub_url, chargers, verbose_mode, auth_key)
                 .await
                 .expect("Failed to obtain meter values from charger hub");
             //Create charge profiles
@@ -108,7 +108,8 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
                     &mut charge_rate, 
                     stop_time.with_timezone(&Utc),
                     verbose_mode, 
-                    ChargingBounds{lower_bnd: charge_clamp_lower, upper_bnd: charge_clamp_upper}
+                    ChargingBounds{lower_bnd: charge_clamp_lower, upper_bnd: charge_clamp_upper},
+                    auth_key
                     ).await;
             }
         }
@@ -124,7 +125,7 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
 
 fn set_start_time() -> DateTime<Local>{
     let start_time = Local::now() // only perform curtailment if after start time
-        .with_hour(19)
+        .with_hour(10)
         .unwrap()
         .with_minute(0)
         .unwrap()

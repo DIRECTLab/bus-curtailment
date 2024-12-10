@@ -16,7 +16,10 @@ pub async fn get_chargers(client: &Client, req_url: &str, location_id: i32, verb
 
     let res = client.get(&charger_url_path).send().await?;
     let body = res.text().await?;
-    let chargers: Vec<Charger> = serde_json::from_str(&body).unwrap();
+    let chargers: Vec<Charger> = serde_json::from_str(&body).unwrap_or_else(|err|{
+        eprintln!("unable to unwrap, {}\nError: {}", &body, err);
+        Vec::new()
+    });
     let only_relevant_chargers: Vec<Charger> = chargers
         .into_iter()
         .filter(|charger| {

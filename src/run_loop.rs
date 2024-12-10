@@ -32,7 +32,6 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
     let time_between_recalculations = Duration::new(15 * 60, 0).expect("Static duration failed to initialize"); // number of minutes to wait between recalculating
                                                                                                                                              // charge charge rates
                                                  
-    let mut initial_calculation = false; // have the initial charge profiles been calculated?
                                                
     let mut last_recalculation = Local::now(); // last time new charge profiles were calculated
                                                                 
@@ -77,10 +76,9 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
         //We could also add rules here for charge behavior based on time of night
         //(IE, if check occurred during non-peak then increase charge rate)
 
-        if !initial_calculation && time_delta >= time_between_recalculations && right_now >= start_time {
+        if time_delta >= time_between_recalculations && right_now >= start_time {
 
 
-            initial_calculation = true; // Set to true since initial value calculated after this point
                                         
             last_recalculation = Local::now();
 

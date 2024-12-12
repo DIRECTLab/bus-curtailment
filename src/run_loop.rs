@@ -1,12 +1,9 @@
 use dotenv::dotenv;
 use reqwest::Client;
 use chrono::{DateTime, Duration, Local, Timelike, Utc};
-use std::time;
+use std::{collections::HashMap, time};
 use crate::{
-    get_data::{get_chargers, get_meter_values, get_charge_rate},
-    send_data::create_charge_profile,
-    util::parse_meterval,
-    types::ChargingBounds
+    get_data::{get_charge_rate, get_chargers, get_meter_values}, send_data::create_charge_profile, types::{ChargeProfile, ChargingBounds}, util::parse_meterval
 };
 
 pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capacity: &i32, desired_soc: &i8, verbose_mode: &bool, auth_key: &String) {
@@ -25,13 +22,22 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
         .expect("LOCATION_ID was not specified in .env")
         .parse::<i32>()
         .expect("Something went wrong reading in the location ID for relevant chargers. Please verify LOCATION_ID is of type u32");
+    
+
+
+    let default_charge_rate = dotenv::var("CHARGE_RATE_DEFAULT")
+        .expect("CHARGE_RATE_DEFAULT was not specified in .env")
+        .parse::<f32>()
+        .expect("Something went wrong reading in the default charge rate. Please verify CHARGE_RATE_DEFAULT is of type f32");
+    
 
 
     const TIME_BETWEEN_LOOPS: u64 = 5 * 60; // number of minutes to wait between loops
                                             
     let time_between_recalculations = Duration::new(15 * 60, 0).expect("Static duration failed to initialize"); // number of minutes to wait between recalculating
                                                                                                                                              // charge charge rates
-                                                 
+                                                
+    let mut prev_profiles = HashMap::new();
                                                
     let mut last_recalculation = Local::now().with_hour(6).unwrap(); // last time new charge profiles were calculated
                                                                 
@@ -94,23 +100,62 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
             //Create charge profiles
             for value in meter_values {
                 //parse the SOC out of the meter values and get % charge needed to get to desired SOC
-                let soc_needed = desired_soc - parse_meterval(&value);
-                //Calculate the power needed for each bus and create a charge profile based on the needed power
-                let time_to_charge = stop_time - right_now;
-                let mut charge_rate = get_charge_rate(time_to_charge, soc_needed, battery_capacity, verbose_mode).await;
+                let current_soc = parse_meterval(&value);
+                if current_soc != -1 {
+                    let soc_needed = desired_soc - current_soc;
+                    //Calculate the power needed for each bus and create a charge profile based on the needed power
+                    let time_to_charge = stop_time - right_now;
+                    let mut charge_rate = get_charge_rate(time_to_charge, soc_needed, battery_capacity, verbose_mode).await;
 
-                //submit charge profiles to chargerhub which should handle the communication with the charger
-                create_charge_profile(
-                    client, 
-                    chargerhub_url, 
-                    &value.connector_id, 
-                    &value.charger_id, 
-                    &mut charge_rate, 
-                    stop_time.with_timezone(&Utc),
-                    verbose_mode, 
-                    ChargingBounds{lower_bnd: charge_clamp_lower, upper_bnd: charge_clamp_upper},
-                    auth_key
-                    ).await;
+                    //submit charge profiles to chargerhub which should handle the communication with the charger
+                    let charge_profile = create_charge_profile(
+                        client, 
+                        chargerhub_url, 
+                        &value.connector_id, 
+                        &value.charger_id, 
+                        &mut charge_rate, 
+                        stop_time.with_timezone(&Utc),
+                        verbose_mode, 
+                        ChargingBounds{lower_bnd: charge_clamp_lower, upper_bnd: charge_clamp_upper},
+                        auth_key
+                        ).await;
+                    prev_profiles.entry(format!("{} - {}", &value.charger_id, &value.connector_id))
+                        .or_insert_with(Vec::new)
+                        .push(charge_profile);
+
+                }
+                else {
+                    let empty_vec: Vec<ChargeProfile> = Vec::new(); // Define a static empty vector
+                    let profile_list = prev_profiles.get(&format!("{} - {}", &value.charger_id, &value.connector_id)).unwrap_or(&empty_vec);
+                    if !profile_list.is_empty() {
+                        let most_recent_profile = profile_list
+                            .last()
+                            .expect("Unable to unwrap charge profile from previous profiles hashmap");
+                        create_charge_profile(
+                        client,
+                        chargerhub_url, 
+                        &value.connector_id, 
+                        &value.charger_id, 
+                        &mut most_recent_profile.charge_rates[0].to_owned(), 
+                        stop_time.with_timezone(&Utc),
+                        verbose_mode, 
+                        ChargingBounds{lower_bnd: charge_clamp_lower, upper_bnd: charge_clamp_upper},
+                        auth_key).await;
+                    }
+
+                    else { 
+                        create_charge_profile(
+                            client,
+                            chargerhub_url, 
+                            &value.connector_id, 
+                            &value.charger_id, 
+                            &mut default_charge_rate.to_owned(),
+                        stop_time.with_timezone(&Utc),
+                        verbose_mode, 
+                        ChargingBounds{lower_bnd: charge_clamp_lower, upper_bnd: charge_clamp_upper},
+                        auth_key).await;
+                    }
+                }
             }
         }
         else {

@@ -45,3 +45,14 @@ pub struct Transaction {
     pub charger_id:      Option<String>,
     pub voided:          Option<bool>
 }
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ChargeProfile {
+    pub charger_id:     String,
+    pub connector_id:   i32,
+    pub start_periods:  [i32; 1],
+    pub stack_level:    i32,
+    pub charge_rates:   [f32; 1],
+    pub purpose:        String,
+    pub start_schedule:     DateTime<Utc>
+}

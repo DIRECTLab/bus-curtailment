@@ -2,21 +2,33 @@ use crate::types::{MeterValue, Transaction};
 use reqwest::{Client, header::{HeaderValue, CONTENT_TYPE, AUTHORIZATION}};
 use serde_json::json;
 
-pub fn parse_meterval(metervalue: &MeterValue) -> i8{
+pub fn parse_meterval(metervalue: &MeterValue) -> i8 {
     /*
      * Given a metervalue, parse out the transaction ID and 
      * SOC metric.
      */
 
-    let meterval = metervalue.sampled_value
-        .as_array()
-        .expect("Meter value is not of expected type (&Vec<Value>)")
-        .iter()
-        .find(|value| value["measurand"] == "SoC")        
-        .expect("Unable to find state of charge information in meter value");
+    let sampled_values = match metervalue.sampled_value.as_array() {
+        Some(values) => values,
+        None => return -1, 
+    };
 
-    String::from(meterval["value"].as_str().unwrap()).parse::<f32>().unwrap() as i8
+    let meterval = match sampled_values.iter().find(|value| value["measurand"] == "SoC") {
+        Some(value) => value,
+        None => return -1, 
+    };
+
+    let value_str = match meterval["value"].as_str() {
+        Some(s) => s,
+        None => return -1, 
+    };
+
+    match value_str.parse::<f32>() {
+        Ok(parsed_value) => parsed_value as i8,
+        Err(_) => -1, 
+    }
 }
+
 
 pub async fn is_meterval_active(req_url: &String, client: &Client, metervalue: &MeterValue, verbose_mode: &bool, auth_key: &String) -> bool{
     /*

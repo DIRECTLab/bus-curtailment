@@ -1,7 +1,7 @@
 use reqwest::{Client, header::{AUTHORIZATION, HeaderValue}};
 use chrono::{Utc, DateTime};
 use serde_json::json;
-use crate::types::{ChargingBounds, Charger};
+use crate::types::{ChargeProfile, Charger, ChargingBounds};
 
 
 pub async fn create_charge_profile(
@@ -13,7 +13,7 @@ pub async fn create_charge_profile(
     valid_to: DateTime<Utc>,
     verbose_mode: &bool,
     crg_bounds: ChargingBounds,
-    auth_key: &String) 
+    auth_key: &String) -> ChargeProfile
 {
     /*
      * Create and send a charge profile to chargerhub which will
@@ -78,7 +78,18 @@ pub async fn create_charge_profile(
         .json(charge_profile)
         .send()
         .await;
+
+    ChargeProfile {
+        charger_id: charger_id.to_owned(),
+        connector_id: connector_id.to_owned(),
+        start_periods: [0],
+        stack_level: 0,
+        charge_rates: [charge_rate.to_owned()],
+        purpose: String::from("TxDefaultProfile"),
+        start_schedule: Utc::now(),
+    }
 }
+
 
 
 pub async fn add_soc_to_metervals(charger: Charger) {

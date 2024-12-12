@@ -170,7 +170,7 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
 
 fn set_start_time() -> DateTime<Local>{
     let start_time = Local::now() // only perform curtailment if after start time
-        .with_hour(10)
+        .with_hour(19)
         .unwrap()
         .with_minute(0)
         .unwrap()

@@ -1,5 +1,5 @@
 use reqwest::{Error, Client, header::{HeaderValue, CONTENT_TYPE, AUTHORIZATION}};
-use chrono::{Duration};
+use chrono::Duration;
 use serde_json::json;
 use crate::{
     types::{Charger, MeterValue},
@@ -134,14 +134,14 @@ pub async fn get_charge_rate(time_allotment: Duration, charge_amount: i8, batter
      *          battery_capacity - total capacity of the battery of the vehicle being passed in
      *          verbose_mode     - display debug statements if true
      *
-     * @Output: Needed charge rate in KW
+     * @Output: Needed charge rate in watts
      */
 
-    let charge_rate = (charge_amount as f32 / 100.0) * (*battery_capacity as f32) / 
-                           (time_allotment.num_hours() as f32 + 
-                           (time_allotment.num_minutes() as f32 / 60.0));
+    let charge_rate = ((charge_amount as f32 / 100.0) * (*battery_capacity as f32)) / 
+                           (time_allotment.num_minutes() as f32 / 60.0);
+
     if *verbose_mode {
-        println!("charge rate {}Kw calculated for charging +{}% over {} minutes", charge_rate, charge_amount, time_allotment.num_minutes());
+        println!("charge rate {}Kw calculated for charging +{}% over {} hours", charge_rate, charge_amount, (time_allotment.num_minutes() as f32 / 60.0));
     }
     charge_rate * 1000.0
 }

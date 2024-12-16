@@ -2,7 +2,7 @@ use crate::types::{MeterValue, Transaction};
 use reqwest::{Client, header::{HeaderValue, CONTENT_TYPE, AUTHORIZATION}};
 use serde_json::json;
 
-pub fn parse_meterval(metervalue: &MeterValue) -> i8 {
+pub async fn parse_meterval(metervalue: &MeterValue) -> i8 {
     /*
      * Given a metervalue, parse out the transaction ID and 
      * SOC metric.

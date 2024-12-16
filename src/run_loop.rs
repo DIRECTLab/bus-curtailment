@@ -22,14 +22,22 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
         .expect("LOCATION_ID was not specified in .env")
         .parse::<i32>()
         .expect("Something went wrong reading in the location ID for relevant chargers. Please verify LOCATION_ID is of type u32");
-    
-
 
     let default_charge_rate = dotenv::var("CHARGE_RATE_DEFAULT")
         .expect("CHARGE_RATE_DEFAULT was not specified in .env")
         .parse::<f32>()
         .expect("Something went wrong reading in the default charge rate. Please verify CHARGE_RATE_DEFAULT is of type f32");
     
+    let curtailment_start_hour = dotenv::var("CURTAILMENT_START_HOUR")
+        .expect("CURTAILMENT_START_HOUR was not specified in .env")
+        .parse::<u32>()
+        .expect("Something went wrong reading in the default charge rate. Please verify CURTAILMENT_START_HOUR is of type u16");
+
+    let curtailment_stop_hour = dotenv::var("CURTAILMENT_STOP_HOUR")
+        .expect("CURTAILMENT_STOP_HOUR was not specified in .env")
+        .parse::<u32>()
+        .expect("Something went wrong reading in the default charge rate. Please verify CURTAILMENT_STOP_HOUR is of type u16");
+
 
 
     const TIME_BETWEEN_LOOPS: u64 = 5 * 60; // number of minutes to wait between loops
@@ -39,12 +47,12 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
                                                 
     let mut prev_profiles = HashMap::new();
                                                
-    let mut last_recalculation = Local::now().with_hour(6).unwrap(); // last time new charge profiles were calculated
+    let mut last_recalculation = Local::now() - Duration::minutes(TIME_BETWEEN_LOOPS as i64); // last time new charge profiles were calculated
                                                                 
-    let mut start_time =  set_start_time();
+    let mut start_time =  set_start_time(curtailment_start_hour);
 
     // Set time to stop curtailment to 5am. If before midnight, add day to chrono datetime
-    let mut stop_time = set_stop_time(last_recalculation);
+    let mut stop_time = set_stop_time(last_recalculation, curtailment_stop_hour);
 
     let mut right_now = Local::now();
 
@@ -73,8 +81,8 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
         let start_delta = start_time - right_now;
         if start_delta.num_hours() >= 24 {
             last_recalculation = Local::now();
-            start_time = set_start_time();
-            stop_time = set_stop_time(last_recalculation)
+            start_time = set_start_time(curtailment_start_hour);
+            stop_time = set_stop_time(last_recalculation, curtailment_stop_hour);
         }
 
         
@@ -100,9 +108,18 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
             //Create charge profiles
             for value in meter_values {
                 //parse the SOC out of the meter values and get % charge needed to get to desired SOC
-                let current_soc = parse_meterval(&value);
+                let current_soc = parse_meterval(&value).await;
+
                 if current_soc != -1 {
-                    let soc_needed = desired_soc - current_soc;
+
+                    let soc_needed = if current_soc >= *desired_soc {
+                        0
+                    }
+                    else {
+                        desired_soc - current_soc
+                    };
+
+
                     //Calculate the power needed for each bus and create a charge profile based on the needed power
                     let time_to_charge = stop_time - right_now;
                     let mut charge_rate = get_charge_rate(time_to_charge, soc_needed, battery_capacity, verbose_mode).await;
@@ -168,9 +185,9 @@ pub async fn runner_loop(client: &Client, chargerhub_url: &String, battery_capac
 }
 
 
-fn set_start_time() -> DateTime<Local>{
+fn set_start_time(curtailment_start_hour: u32) -> DateTime<Local>{
     let start_time = Local::now() // only perform curtailment if after start time
-        .with_hour(19)
+        .with_hour(curtailment_start_hour)
         .unwrap()
         .with_minute(0)
         .unwrap()
@@ -179,10 +196,10 @@ fn set_start_time() -> DateTime<Local>{
     start_time
 }
 
-fn set_stop_time(last_recalculation: DateTime<Local>) -> DateTime<Local> {
-    // Set time to stop curtailment to 5am. If before midnight, add day to chrono datetime
+fn set_stop_time(last_recalculation: DateTime<Local>, curtailment_stop_hour: u32) -> DateTime<Local> {
+    // Set time to stop curtailment to stop time specified in env. If before midnight, add day to chrono datetime
     let mut stop_time = Local::now()
-        .with_hour(5)
+        .with_hour(curtailment_stop_hour)
         .unwrap()
         .with_minute(0)
         .unwrap()

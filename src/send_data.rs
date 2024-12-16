@@ -1,7 +1,7 @@
 use reqwest::{Client, header::{AUTHORIZATION, HeaderValue}};
 use chrono::{Utc, DateTime};
 use serde_json::json;
-use crate::types::{ChargeProfile, Charger, ChargingBounds};
+use crate::types::{ChargeProfile, ChargingBounds};
 
 
 pub async fn create_charge_profile(
@@ -57,6 +57,7 @@ pub async fn create_charge_profile(
                 "stack_level": 0,
                 "charge_rates": [charge_rate],
                 "purpose": "TxDefaultProfile",
+                "valid_to": valid_to,
                 "start_schedule": Utc::now(),
             });
 
@@ -90,8 +91,3 @@ pub async fn create_charge_profile(
     }
 }
 
-
-
-pub async fn add_soc_to_metervals(charger: Charger) {
-
-}

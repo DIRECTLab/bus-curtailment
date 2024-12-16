@@ -1,4 +1,3 @@
-use dotenv::dotenv;
 use reqwest::Client;
 use chrono::{DateTime, Duration, Local, Timelike, Utc};
 use std::{collections::HashMap, time};
